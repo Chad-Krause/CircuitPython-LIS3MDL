@@ -45,6 +45,7 @@ _LIS3MDL_CTRL_REG2 = const(0x21)  # Register address for control 2
 _LIS3MDL_CTRL_REG3 = const(0x22)  # Register address for control 3
 _LIS3MDL_CTRL_REG4 = const(0x23)  # Register address for control 3
 _LIS3MDL_OUT_X_L = const(0x28)  # Register address for X axis lower byte
+_LIS3MDL_OUT_TEMPERATURE_L = const(0x2E)
 _LIS3MDL_INT_CFG = const(0x30)  # Interrupt configuration register
 _LIS3MDL_INT_THS_L = const(0x32)  # Low byte of the irq threshold
 
@@ -205,7 +206,8 @@ class LIS3MDL:
     
     _temp_enable = RWBit(_LIS3MDL_CTRL_REG1, 7)
 
-    _raw_mag_data = Struct(_LIS3MDL_OUT_X_L, "<hhhh")
+    _raw_mag_data = Struct(_LIS3MDL_OUT_X_L, "<hhh")
+    _raw_temp_data = Struct(_LIS3MDL_OUT_TEMPERATURE_L, "<h")
 
     _range = RWBits(2, _LIS3MDL_CTRL_REG2, 5)
     _reset = RWBit(_LIS3MDL_CTRL_REG2, 2)
@@ -238,10 +240,12 @@ class LIS3MDL:
         """
 
         raw_mag_data = self._raw_mag_data
+        raw_temp_data = self._raw_temp_data
         x = self._scale_mag_data(raw_mag_data[0])
         y = self._scale_mag_data(raw_mag_data[1])
         z = self._scale_mag_data(raw_mag_data[2])
-        t = self._scale_temp_data(raw_mag_data[3])
+        t = self._scale_temp_data(raw_temp_data[0])[1]
+        
 
         return (x, y, z, t)
 
@@ -249,8 +253,10 @@ class LIS3MDL:
         return (raw_measurement / Range.lsb[self.range]) * _GAUSS_TO_UT
     
     def _scale_temp_data(self, raw_measurement):
-        return (raw_measurement / 256.0)
-        
+        degrees_communism = (raw_measurement / 256.0) + 25.0
+        degrees_freedom = degrees_communism * 9.0/5.0 + 32
+        return (degrees_communism, degrees_freedom)
+
     @property
     def range(self):
         """The measurement range for the magnetic sensor. Must be a ``Range``"""

@@ -22,6 +22,7 @@ public class LIS3MDL implements Sendable {
     private final static int CTRL_REG3 = 0x22;
     private final static int CTRL_REG4 = 0x23;
     private final static int SENSOR_DATA = 0x28;
+    private final static int TEMP_DATA = 0x2E;
     private final static int INT_CFG = 0x30;
     private final static int INT_THS_L = 0x32;
 
@@ -31,8 +32,10 @@ public class LIS3MDL implements Sendable {
 
     protected final static int CMD = 0x80;
     private I2C sensor;
-    private volatile ByteBuffer readBuffer = ByteBuffer.allocate(8);
-    //private volatile ByteBuffer writeBuffer = ByteBuffer.allocate(3);
+    private volatile ByteBuffer readMagBuffer = ByteBuffer.allocate(6);
+    private volatile ByteBuffer readTempBuffer = ByteBuffer.allocate(2);
+
+    private volatile int bad_reads = 0;
 
     public LIS3MDL(I2C.Port port) {
         this(port, DEFAULT_I2C_DEVICE_ADDRESS);
@@ -40,11 +43,13 @@ public class LIS3MDL implements Sendable {
 
     public LIS3MDL(I2C.Port port, int address) {
         sensor = new I2C(port, address);
-        readBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        readMagBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        readTempBuffer.order(ByteOrder.LITTLE_ENDIAN);
 
         byte[] sensorId = ByteBuffer.allocate(1).put(CHIP_ID).array();
         if(!sensor.verifySensor(WHO_AM_I, 1, sensorId)) {
             System.err.println("LIS3MDL - wrong Chip ID");
+            bad_reads++;
         }
 
         setRate(LIS3MDL_Rate.RATE_155_HZ);
@@ -55,16 +60,20 @@ public class LIS3MDL implements Sendable {
     }
 
     public synchronized LIS3MDL_Result read() {
-        readBuffer.clear();
-        if(sensor.read(SENSOR_DATA, 8, readBuffer)) {
+        readMagBuffer.clear();
+        if(sensor.read(SENSOR_DATA, 6, readMagBuffer)) {
             System.out.println("Failed to get data");
+            bad_reads++;
         }
-        readBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        if(sensor.read(TEMP_DATA, 2, readTempBuffer)) {
+            System.out.println("Failed to get data");
+            bad_reads++;
+        }
 
-        short tempX = readBuffer.getShort(0);
-        short tempY = readBuffer.getShort(2);
-        short tempZ = readBuffer.getShort(4);
-        short tempT = readBuffer.getShort(6);
+        short tempX = readMagBuffer.getShort(0);
+        short tempY = readMagBuffer.getShort(2);
+        short tempZ = readMagBuffer.getShort(4);
+        short tempT = readTempBuffer.getShort(0);
 
         LIS3MDL_Result result = new LIS3MDL_Result(
             scale_mag(tempX), // x
@@ -76,13 +85,17 @@ public class LIS3MDL implements Sendable {
         return last_result = result;
     }
 
+    public int getBadReads() {
+        return this.bad_reads;
+    }
+
     private double scale_mag(short bits_in) {
         return (double) bits_in / this.LSB_Multiplier * GAUSS_TO_T;
     }
 
     private double scale_temp(short bits_in) {
         double temp_raw = (double)bits_in;
-        return temp_raw / 256; // 8 LSB per degree C
+        return temp_raw / 256.0 + 25.0; // 8 LSB per degree C
     }
 
     private int getControlRegister(int register) {
